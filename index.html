@@ -258,7 +258,7 @@
 
   // --- SETUP ---
   window.addEventListener('load', () => {
-    const url = 'https://script.google.com/macros/s/AKfycbykTaGi6V91gsFBIXkrTbvA20i7MA_mEiVpgggpku0FDFcQ6nfdyn9r8E7WXMgxdiFGtQ/exec';
+    const url = 'https://script.google.com/macros/s/AKfycbzPbNXdQc9WmWcrpCHf-QHQ-8NY-zl83NG0l20vZoG_WjTdAcvG8cd-_4WgqkRA_cHYiw/exec';
     document.getElementById('setup-banner').style.display = 'none';
   });
   function saveScriptUrl() {
@@ -286,7 +286,7 @@
 
   // --- SUBMIT ---
   async function submitEntry() {
-    const scriptUrl = 'https://script.google.com/macros/s/AKfycbykTaGi6V91gsFBIXkrTbvA20i7MA_mEiVpgggpku0FDFcQ6nfdyn9r8E7WXMgxdiFGtQ/exec';
+    const scriptUrl = 'https://script.google.com/macros/s/AKfycbzPbNXdQc9WmWcrpCHf-QHQ-8NY-zl83NG0l20vZoG_WjTdAcvG8cd-_4WgqkRA_cHYiw/exec';
     if (!scriptUrl) { showToast('请先设置Google Sheets URL', true); return; }
     if (!selectedCompany) { showToast('请选择公司', true); return; }
     const amount = parseFloat(document.getElementById('entry-amount').value);
@@ -305,12 +305,11 @@
     btn.textContent = 'Checking...';
 
     try {
-      // Check for duplicate
-      const checkRes = await fetch(scriptUrl, {
-        method: 'POST', mode: 'cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, action: 'check' })
-      });
+      // Check for duplicate via GET (avoids CORS preflight)
+      const checkRes = await fetch(
+        `${scriptUrl}?action=check&company=${encodeURIComponent(selectedCompany)}&weekStart=${weekStartStr}`,
+        { method: 'GET', mode: 'cors' }
+      );
       const checkData = await checkRes.json();
 
       if (checkData.exists) {
@@ -326,8 +325,7 @@
 
       await saveEntry({ ...payload, action: 'new' });
     } catch(err) {
-      // no-cors fallback
-      await saveEntryNoCors({ ...payload, action: 'new' });
+      showToast('连接失败，请检查网络或Script URL', true);
     }
 
     btn.disabled = false;
@@ -345,7 +343,7 @@
   }
 
   async function saveEntry(payload) {
-    const scriptUrl = 'https://script.google.com/macros/s/AKfycbykTaGi6V91gsFBIXkrTbvA20i7MA_mEiVpgggpku0FDFcQ6nfdyn9r8E7WXMgxdiFGtQ/exec';
+    const scriptUrl = 'https://script.google.com/macros/s/AKfycbzPbNXdQc9WmWcrpCHf-QHQ-8NY-zl83NG0l20vZoG_WjTdAcvG8cd-_4WgqkRA_cHYiw/exec';
     try {
       await fetch(scriptUrl, {
         method: 'POST', mode: 'no-cors',
@@ -371,7 +369,7 @@
 
   // --- EXPORT ---
   async function exportReport() {
-    const scriptUrl = 'https://script.google.com/macros/s/AKfycbykTaGi6V91gsFBIXkrTbvA20i7MA_mEiVpgggpku0FDFcQ6nfdyn9r8E7WXMgxdiFGtQ/exec';
+    const scriptUrl = 'https://script.google.com/macros/s/AKfycbzPbNXdQc9WmWcrpCHf-QHQ-8NY-zl83NG0l20vZoG_WjTdAcvG8cd-_4WgqkRA_cHYiw/exec';
     if (!scriptUrl) { showToast('请先设置Google Sheets URL', true); return; }
 
     const fy = document.getElementById('export-fy').value;
