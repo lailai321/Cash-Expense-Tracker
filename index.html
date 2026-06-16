@@ -351,20 +351,30 @@
   async function saveEntry(payload) {
     const scriptUrl = 'https://script.google.com/macros/s/AKfycbzPbNXdQc9WmWcrpCHf-QHQ-8NY-zl83NG0l20vZoG_WjTdAcvG8cd-_4WgqkRA_cHYiw/exec';
     try {
-      await fetch(scriptUrl, {
-        method: 'POST', mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const params = new URLSearchParams({
+        action: payload.action,
+        company: payload.company,
+        weekStart: payload.weekStart,
+        weekEnd: payload.weekEnd,
+        amount: payload.amount,
+        description: payload.description || '',
+        _: Date.now()
       });
-      recentEntries.unshift(payload);
-      renderRecent();
-      document.getElementById('entry-amount').value = '';
-      document.getElementById('entry-desc').value = '';
-      document.querySelectorAll('.company-btn').forEach(b => b.classList.remove('selected'));
-      selectedCompany = '';
-      showToast('✅ 已保存到Google Sheets！');
+      const res = await fetch(`${scriptUrl}?${params}`, { method: 'GET', mode: 'cors' });
+      const result = await res.json();
+      if (result.success) {
+        recentEntries.unshift(payload);
+        renderRecent();
+        document.getElementById('entry-amount').value = '';
+        document.getElementById('entry-desc').value = '';
+        document.querySelectorAll('.company-btn').forEach(b => b.classList.remove('selected'));
+        selectedCompany = '';
+        showToast('✅ 已保存到Google Sheets！');
+      } else {
+        showToast('保存失败：' + (result.error || '未知错误'), true);
+      }
     } catch(err) {
-      showToast('保存失败，请检查URL', true);
+      showToast('连接失败，请检查网络', true);
     }
   }
 
