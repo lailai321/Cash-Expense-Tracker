@@ -313,7 +313,7 @@
     try {
       // Check for duplicate via GET (avoids CORS preflight)
       const checkRes = await fetch(
-        `${scriptUrl}?action=check&company=${encodeURIComponent(selectedCompany)}&weekStart=${weekStartStr}`,
+        `${scriptUrl}?action=check&company=${encodeURIComponent(selectedCompany)}&weekStart=${weekStartStr}&_=${Date.now()}`,
         { method: 'GET', mode: 'cors' }
       );
       const checkData = await checkRes.json();
