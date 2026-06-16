@@ -337,11 +337,12 @@
   }
 
   async function confirmOverwrite() {
+    const payload = pendingPayload;
     closeModal();
     const btn = document.getElementById('submit-btn');
     btn.disabled = true;
     btn.textContent = 'Saving...';
-    await saveEntry(pendingPayload);
+    await saveEntry(payload);
     btn.disabled = false;
     btn.textContent = 'Save Expense';
   }
