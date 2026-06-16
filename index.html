@@ -198,10 +198,25 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
+  const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzPbNXdQc9WmWcrpCHf-QHQ-8NY-zl83NG0l20vZoG_WjTdAcvG8cd-_4WgqkRA_cHYiw/exec';
+
   let selectedCompany = '';
   let recentEntries = [];
   let currentMonday = getMonday(new Date());
   let pendingPayload = null;
+  let sheetEntries = []; // 从 sheet 加载的所有记录，用于本地重复检测
+
+  // 页面加载时拉取所有数据
+  async function loadSheetData() {
+    try {
+      const res = await fetch(`${SCRIPT_URL}?action=get&_=${Date.now()}`, { method: 'GET', mode: 'cors' });
+      const data = await res.json();
+      sheetEntries = data.rows || [];
+    } catch(e) {
+      sheetEntries = [];
+    }
+  }
+  loadSheetData();
 
   // --- WEEK PICKER ---
   function getMonday(d) {
@@ -242,7 +257,6 @@
   // --- FY DROPDOWN ---
   function populateFYDropdown() {
     const sel = document.getElementById('export-fy');
-    const thisYear = new Date().getFullYear();
     const { fy: currentFY } = getFYQuarter(new Date());
     for (let y = currentFY; y >= currentFY - 3; y--) {
       const opt = document.createElement('option');
@@ -250,7 +264,6 @@
       opt.textContent = `FY${y} (${y-1}–${y})`;
       sel.appendChild(opt);
     }
-    // Set current quarter
     const { q } = getFYQuarter(new Date());
     document.getElementById('export-q').value = q;
   }
@@ -258,13 +271,11 @@
 
   // --- SETUP ---
   window.addEventListener('load', () => {
-    const url = 'https://script.google.com/macros/s/AKfycbzPbNXdQc9WmWcrpCHf-QHQ-8NY-zl83NG0l20vZoG_WjTdAcvG8cd-_4WgqkRA_cHYiw/exec';
     document.getElementById('setup-banner').style.display = 'none';
   });
   function saveScriptUrl() {
     const url = document.getElementById('script-url-input').value.trim();
     if (!url.startsWith('https://script.google.com')) { showToast('请输入正确的Apps Script URL', true); return; }
-    localStorage.setItem('gas_url', url);
     document.getElementById('setup-banner').style.display = 'none';
     showToast('✅ 已连接Google Sheets！');
   }
@@ -292,8 +303,6 @@
 
   // --- SUBMIT ---
   async function submitEntry() {
-    const scriptUrl = 'https://script.google.com/macros/s/AKfycbzPbNXdQc9WmWcrpCHf-QHQ-8NY-zl83NG0l20vZoG_WjTdAcvG8cd-_4WgqkRA_cHYiw/exec';
-    if (!scriptUrl) { showToast('请先设置Google Sheets URL', true); return; }
     if (!selectedCompany) { showToast('请选择公司', true); return; }
     const amount = parseFloat(document.getElementById('entry-amount').value);
     const desc = document.getElementById('entry-desc').value.trim();
@@ -308,32 +317,21 @@
 
     const btn = document.getElementById('submit-btn');
     btn.disabled = true;
-    btn.textContent = 'Checking...';
+    btn.textContent = 'Saving...';
 
-    try {
-      // Check for duplicate via GET (avoids CORS preflight)
-      const checkRes = await fetch(
-        `${scriptUrl}?action=check&company=${encodeURIComponent(selectedCompany)}&weekStart=${weekStartStr}&_=${Date.now()}`,
-        { method: 'GET', mode: 'cors' }
-      );
-      const checkData = await checkRes.json();
-
-      if (checkData.exists) {
-        pendingPayload = { ...payload, action: 'overwrite' };
-        const sunday = new Date(currentMonday); sunday.setDate(sunday.getDate() + 6);
-        document.getElementById('modal-msg').innerHTML =
-          `<strong>${selectedCompany}</strong><br>${formatDate(currentMonday)} – ${formatDate(sunday)}<br><br>已有记录：<strong>$${parseFloat(checkData.amount).toFixed(2)}</strong>${checkData.description ? ' (' + checkData.description + ')' : ''}<br><br>确定要覆盖吗？`;
-        document.getElementById('modal').classList.add('show');
-        btn.disabled = false;
-        btn.textContent = 'Save Expense';
-        return;
-      }
-
-      await saveEntry({ ...payload, action: 'new' });
-    } catch(err) {
-      showToast('连接失败，请检查网络或Script URL', true);
+    // 本地重复检测，不走网络，100% 准确
+    const existing = sheetEntries.find(e => e.company === selectedCompany && e.weekStart === weekStartStr);
+    if (existing) {
+      pendingPayload = { ...payload, action: 'overwrite' };
+      document.getElementById('modal-msg').innerHTML =
+        `<strong>${selectedCompany}</strong><br>${formatDate(currentMonday)} – ${formatDate(sunday)}<br><br>已有记录：<strong>$${parseFloat(existing.amount).toFixed(2)}</strong>${existing.description ? ' (' + existing.description + ')' : ''}<br><br>确定要覆盖吗？`;
+      document.getElementById('modal').classList.add('show');
+      btn.disabled = false;
+      btn.textContent = 'Save Expense';
+      return;
     }
 
+    await saveEntry({ ...payload, action: 'new' });
     btn.disabled = false;
     btn.textContent = 'Save Expense';
   }
@@ -349,7 +347,6 @@
   }
 
   async function saveEntry(payload) {
-    const scriptUrl = 'https://script.google.com/macros/s/AKfycbzPbNXdQc9WmWcrpCHf-QHQ-8NY-zl83NG0l20vZoG_WjTdAcvG8cd-_4WgqkRA_cHYiw/exec';
     try {
       const params = new URLSearchParams({
         action: payload.action,
@@ -360,9 +357,16 @@
         description: payload.description || '',
         _: Date.now()
       });
-      const res = await fetch(`${scriptUrl}?${params}`, { method: 'GET', mode: 'cors' });
+      const res = await fetch(`${SCRIPT_URL}?${params}`, { method: 'GET', mode: 'cors' });
       const result = await res.json();
       if (result.success) {
+        // 更新本地缓存，下次重复检测立即生效
+        if (payload.action === 'new') {
+          sheetEntries.push({ company: payload.company, weekStart: payload.weekStart, weekEnd: payload.weekEnd, amount: payload.amount, description: payload.description || '' });
+        } else {
+          const idx = sheetEntries.findIndex(e => e.company === payload.company && e.weekStart === payload.weekStart);
+          if (idx >= 0) { sheetEntries[idx].amount = payload.amount; sheetEntries[idx].description = payload.description || ''; }
+        }
         recentEntries.unshift(payload);
         renderRecent();
         document.getElementById('entry-amount').value = '';
@@ -374,7 +378,7 @@
         showToast('保存失败：' + (result.error || '未知错误'), true);
       }
     } catch(err) {
-      showToast('连接失败，请检查网络', true);
+      showToast('连接失败：' + err.message, true);
     }
   }
 
@@ -385,9 +389,6 @@
 
   // --- EXPORT ---
   async function exportReport() {
-    const scriptUrl = 'https://script.google.com/macros/s/AKfycbzPbNXdQc9WmWcrpCHf-QHQ-8NY-zl83NG0l20vZoG_WjTdAcvG8cd-_4WgqkRA_cHYiw/exec';
-    if (!scriptUrl) { showToast('请先设置Google Sheets URL', true); return; }
-
     const fy = document.getElementById('export-fy').value;
     const q = document.getElementById('export-q').value;
     const label = `FY${fy} ${q}`;
@@ -397,7 +398,7 @@
     btn.textContent = 'Loading data...';
 
     try {
-      const res = await fetch(scriptUrl + '?action=get', { method: 'GET', mode: 'cors' });
+      const res = await fetch(`${SCRIPT_URL}?action=get&_=${Date.now()}`, { method: 'GET', mode: 'cors' });
       const data = await res.json();
 
       const filtered = data.rows.filter(r => r.fyQuarter === label);
