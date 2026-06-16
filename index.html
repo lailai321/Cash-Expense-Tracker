@@ -284,6 +284,12 @@
     selectedCompany = name;
   }
 
+  function toLocalDateStr(d) {
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
   // --- SUBMIT ---
   async function submitEntry() {
     const scriptUrl = 'https://script.google.com/macros/s/AKfycbzPbNXdQc9WmWcrpCHf-QHQ-8NY-zl83NG0l20vZoG_WjTdAcvG8cd-_4WgqkRA_cHYiw/exec';
@@ -293,10 +299,10 @@
     const desc = document.getElementById('entry-desc').value.trim();
     if (!amount || amount <= 0) { showToast('请输入正确金额', true); return; }
 
-    const weekStartStr = currentMonday.toISOString().split('T')[0];
+    const weekStartStr = toLocalDateStr(currentMonday);
     const sunday = new Date(currentMonday);
     sunday.setDate(sunday.getDate() + 6);
-    const weekEndStr = sunday.toISOString().split('T')[0];
+    const weekEndStr = toLocalDateStr(sunday);
 
     const payload = { company: selectedCompany, weekStart: weekStartStr, weekEnd: weekEndStr, amount, description: desc };
 
