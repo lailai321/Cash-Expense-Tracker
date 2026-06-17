@@ -40,6 +40,10 @@
 
   .field { margin-bottom: 16px; }
   .field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .field label .opt { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); opacity: 0.7; }
+
+  .amount-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .amount-fields .field { margin-bottom: 0; }
 
   .week-picker { display: flex; align-items: center; gap: 10px; }
   .week-nav { background: var(--primary); color: white; border: none; border-radius: 8px; width: 38px; height: 38px; font-size: 18px; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
@@ -85,7 +89,9 @@
   .entry-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
   .entry-row:last-child { border-bottom: none; }
   .entry-row .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .entry-row .amounts { text-align: right; }
   .entry-row .amount { font-weight: 700; color: var(--accent); font-size: 15px; }
+  .entry-row .gst-tag { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .empty-state { text-align: center; padding: 20px; color: var(--muted); font-size: 13px; }
 </style>
 </head>
@@ -139,15 +145,26 @@
         <button class="week-nav" onclick="changeWeek(1)">›</button>
       </div>
     </div>
-    <div class="field">
-      <label>Amount (AUD)</label>
-      <div class="amount-wrap">
-        <span>$</span>
-        <input type="number" id="entry-amount" placeholder="0.00" min="0" step="0.01" inputmode="decimal" />
+
+    <div class="amount-fields">
+      <div class="field">
+        <label>Amount (AUD)</label>
+        <div class="amount-wrap">
+          <span>$</span>
+          <input type="number" id="entry-amount" placeholder="0.00" min="0" step="0.01" inputmode="decimal" />
+        </div>
+      </div>
+      <div class="field">
+        <label>GST <span class="opt">(optional)</span></label>
+        <div class="amount-wrap">
+          <span>$</span>
+          <input type="number" id="entry-gst" placeholder="0.00" min="0" step="0.01" inputmode="decimal" />
+        </div>
       </div>
     </div>
+
     <div class="field">
-      <label>Description (optional)</label>
+      <label>Description <span class="opt">(optional)</span></label>
       <textarea id="entry-desc" placeholder="e.g. Supplier payment, wages..."></textarea>
     </div>
     <button id="submit-btn" onclick="submitEntry()">Save Expense</button>
@@ -204,9 +221,8 @@
   let recentEntries = [];
   let currentMonday = getMonday(new Date());
   let pendingPayload = null;
-  let sheetEntries = []; // 从 sheet 加载的所有记录，用于本地重复检测
+  let sheetEntries = [];
 
-  // 页面加载时拉取所有数据
   async function loadSheetData() {
     try {
       const res = await fetch(`${SCRIPT_URL}?action=get&_=${Date.now()}`, { method: 'GET', mode: 'cors' });
@@ -305,6 +321,7 @@
   async function submitEntry() {
     if (!selectedCompany) { showToast('请选择公司', true); return; }
     const amount = parseFloat(document.getElementById('entry-amount').value);
+    const gst = parseFloat(document.getElementById('entry-gst').value) || 0;
     const desc = document.getElementById('entry-desc').value.trim();
     if (!amount || amount <= 0) { showToast('请输入正确金额', true); return; }
 
@@ -313,18 +330,18 @@
     sunday.setDate(sunday.getDate() + 6);
     const weekEndStr = toLocalDateStr(sunday);
 
-    const payload = { company: selectedCompany, weekStart: weekStartStr, weekEnd: weekEndStr, amount, description: desc };
+    const payload = { company: selectedCompany, weekStart: weekStartStr, weekEnd: weekEndStr, amount, gst, description: desc };
 
     const btn = document.getElementById('submit-btn');
     btn.disabled = true;
     btn.textContent = 'Saving...';
 
-    // 本地重复检测，不走网络，100% 准确
     const existing = sheetEntries.find(e => e.company === selectedCompany && e.weekStart === weekStartStr);
     if (existing) {
       pendingPayload = { ...payload, action: 'overwrite' };
+      const gstLine = existing.gst ? ` · GST <strong>$${parseFloat(existing.gst).toFixed(2)}</strong>` : '';
       document.getElementById('modal-msg').innerHTML =
-        `<strong>${selectedCompany}</strong><br>${formatDate(currentMonday)} – ${formatDate(sunday)}<br><br>已有记录：<strong>$${parseFloat(existing.amount).toFixed(2)}</strong>${existing.description ? ' (' + existing.description + ')' : ''}<br><br>确定要覆盖吗？`;
+        `<strong>${selectedCompany}</strong><br>${formatDate(currentMonday)} – ${formatDate(sunday)}<br><br>已有记录：<strong>$${parseFloat(existing.amount).toFixed(2)}</strong>${gstLine}${existing.description ? ' · ' + existing.description : ''}<br><br>确定要覆盖吗？`;
       document.getElementById('modal').classList.add('show');
       btn.disabled = false;
       btn.textContent = 'Save Expense';
@@ -355,22 +372,27 @@
         weekStart: payload.weekStart,
         weekEnd: payload.weekEnd,
         amount: payload.amount,
+        gst: payload.gst || 0,
         description: payload.description || '',
         _: Date.now()
       });
       const res = await fetch(`${SCRIPT_URL}?${params}`, { method: 'GET', mode: 'cors' });
       const result = await res.json();
       if (result.success) {
-        // 更新本地缓存，下次重复检测立即生效
         if (payload.action === 'new') {
-          sheetEntries.push({ company: payload.company, weekStart: payload.weekStart, weekEnd: payload.weekEnd, amount: payload.amount, description: payload.description || '' });
+          sheetEntries.push({ company: payload.company, weekStart: payload.weekStart, weekEnd: payload.weekEnd, amount: payload.amount, gst: payload.gst || 0, description: payload.description || '' });
         } else {
           const idx = sheetEntries.findIndex(e => e.company === payload.company && e.weekStart === payload.weekStart);
-          if (idx >= 0) { sheetEntries[idx].amount = payload.amount; sheetEntries[idx].description = payload.description || ''; }
+          if (idx >= 0) {
+            sheetEntries[idx].amount = payload.amount;
+            sheetEntries[idx].gst = payload.gst || 0;
+            sheetEntries[idx].description = payload.description || '';
+          }
         }
         recentEntries.unshift(payload);
         renderRecent();
         document.getElementById('entry-amount').value = '';
+        document.getElementById('entry-gst').value = '';
         document.getElementById('entry-desc').value = '';
         document.querySelectorAll('.company-btn').forEach(b => b.classList.remove('selected'));
         selectedCompany = '';
@@ -413,9 +435,11 @@
       filtered.forEach(r => {
         if (!weekMap[r.weekStart]) weekMap[r.weekStart] = { weekEnd: r.weekEnd };
         weekMap[r.weekStart][r.company] = r.amount;
+        weekMap[r.weekStart][r.company + '_gst'] = r.gst || 0;
       });
       const weeks = Object.keys(weekMap).sort();
       let totals = { 'OCEAN BLOOM PTY LTD': 0, 'TRIANGLE SHALLOTS PTY LTD': 0, 'SNOWMAN GROUP PTY LTD': 0 };
+      let gstTotals = { 'OCEAN BLOOM PTY LTD': 0, 'TRIANGLE SHALLOTS PTY LTD': 0, 'SNOWMAN GROUP PTY LTD': 0 };
       weeks.forEach(w => {
         const row = [w, weekMap[w].weekEnd];
         let rowTotal = 0;
@@ -423,30 +447,34 @@
           const amt = weekMap[w][c] || 0;
           row.push(amt);
           totals[c] += amt;
+          gstTotals[c] += weekMap[w][c + '_gst'] || 0;
           rowTotal += amt;
         });
         row.push(rowTotal);
         summaryData.push(row);
       });
       const grandTotal = companies.reduce((s, c) => s + totals[c], 0);
+      const grandGST = companies.reduce((s, c) => s + gstTotals[c], 0);
       summaryData.push(['TOTAL', '', ...companies.map(c => totals[c]), grandTotal]);
+      summaryData.push(['GST TOTAL', '', ...companies.map(c => gstTotals[c]), grandGST]);
 
       const ws = XLSX.utils.aoa_to_sheet(summaryData);
       ws['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 26 }, { wch: 26 }, { wch: 22 }, { wch: 10 }];
       XLSX.utils.book_append_sheet(wb, ws, `${label} Summary`);
 
-      // Individual sheets
+      // Individual sheets per company
       companies.forEach(company => {
         const compRows = filtered.filter(r => r.company === company);
-        const sheetData = [['Week Starting', 'Week Ending', 'Amount (AUD)', 'Description']];
-        let total = 0;
+        const sheetData = [['Week Starting', 'Week Ending', 'Amount (AUD)', 'GST (AUD)', 'Description']];
+        let total = 0, gstTotal = 0;
         compRows.sort((a,b) => a.weekStart.localeCompare(b.weekStart)).forEach(r => {
-          sheetData.push([r.weekStart, r.weekEnd, r.amount, r.description || '']);
+          sheetData.push([r.weekStart, r.weekEnd, r.amount, r.gst || 0, r.description || '']);
           total += parseFloat(r.amount);
+          gstTotal += parseFloat(r.gst || 0);
         });
-        sheetData.push(['TOTAL', '', total, '']);
+        sheetData.push(['TOTAL', '', total, gstTotal, '']);
         const ws2 = XLSX.utils.aoa_to_sheet(sheetData);
-        ws2['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 30 }];
+        ws2['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 30 }];
         const shortName = company.replace(' PTY LTD','').substring(0,20);
         XLSX.utils.book_append_sheet(wb, ws2, shortName);
       });
@@ -468,12 +496,16 @@
     list.innerHTML = recentEntries.slice(0, 5).map(e => {
       const mon = new Date(e.weekStart + 'T00:00:00');
       const sun = new Date(e.weekEnd + 'T00:00:00');
+      const gstTag = e.gst ? `<div class="gst-tag">GST $${parseFloat(e.gst).toFixed(2)}</div>` : '';
       return `<div class="entry-row">
         <div>
           <div>${e.company.replace(' PTY LTD','')}</div>
           <div class="meta">${formatDate(mon)} – ${formatDate(sun)}${e.description ? ' · ' + e.description : ''}</div>
         </div>
-        <div class="amount">$${parseFloat(e.amount).toFixed(2)}</div>
+        <div class="amounts">
+          <div class="amount">$${parseFloat(e.amount).toFixed(2)}</div>
+          ${gstTag}
+        </div>
       </div>`;
     }).join('');
   }
